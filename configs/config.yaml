@@ -1,0 +1,66 @@
+seed: 0
+
+data:
+  image_size: 256
+  z_chunk_size: 16
+  fluo_masks_indices: [0, 1]
+  seg_method: "comdet"
+  data_type: "Brightfield"
+  normalize: "zscore"
+  multi_class: true
+  dataset_folder_path: "/data_ssd2/iscat_data/"
+
+  train_dataset:
+    num_workers: 2
+    apply_augmentation: true
+    normalize: ${data.normalize}
+    classes: ${data.fluo_masks_indices}
+    multi_class: ${data.multi_class}
+
+  valid_dataset:
+    num_workers: 2
+    apply_augmentation: false
+    normalize: ${data.normalize}
+    classes: ${data.fluo_masks_indices}
+    multi_class: ${data.multi_class}
+
+training:
+  batch_size: 32
+  num_epochs: 400
+  train_split_size: 0.9
+
+  optimizer:
+    type: "AdamW"
+    parameters:
+      lr: 1e-4
+      weight_decay: 1e-4
+      betas: [0.9, 0.999]
+
+  scheduler:
+    type: "ReduceLROnPlateau"   # or "CosineAnnealingLR"
+    parameters:
+      # ReduceLROnPlateau
+      mode: "min"
+      factor: 0.1
+      patience: 8
+
+      # CosineAnnealingLR
+      T_max: 400
+      eta_min: 1e-6
+
+  early_stopping:
+    enabled: true
+    patience: 20
+    criterion: "min"   # "min" or "max"
+
+diffusion:
+  timesteps: 1000
+  beta_schedule: "linear"   # "linear" or "cosine"
+
+model:
+  type: "U_Net"
+  unet:
+    init_features: 64
+
+output:
+  output_dir: "./experiments"
