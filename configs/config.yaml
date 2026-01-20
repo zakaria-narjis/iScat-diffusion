@@ -1,5 +1,5 @@
 seed: 0
-
+experiment_name: "iscat_ddpm"
 data:
   image_size: 256
   z_chunk_size: 16
@@ -8,7 +8,7 @@ data:
   data_type: "Brightfield"
   normalize: "zscore"
   multi_class: true
-  dataset_folder_path: "/data_ssd2/iscat_data/"
+  dataset_folder_path: "/scratch/narjis/iscat_data/brightfield.hdf5"
 
   train_dataset:
     num_workers: 2

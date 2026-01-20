@@ -155,28 +155,38 @@ class DDPMTrainer:
     def train_epoch(self):
         self.model.train()
         total_loss = torch.tensor(0.0, device=self.device)
+        num_batches = 0
 
         for x0, cond in self.train_loader:
             x0 = x0.to(self.device)
-            cond = cond.unsqueeze(1).to(self.device) # (B,1,H,W)
+            cond = cond.unsqueeze(1).to(self.device)  # (B, 1, H, W)
 
             B = x0.size(0)
             t = torch.randint(0, self.T, (B,), device=self.device)
-            noise = torch.randn_like(x0) # (B,C,H,W)
+            noise = torch.randn_like(x0)  # (B, C, H, W)
 
-            x_t = self.diffusion.q_sample(x0, t, noise) # (B,C,H,W)
+            x_t = self.diffusion.q_sample(x0, t, noise)  # (B, C, H, W)
             pred_noise = self.model(x_t, cond, t)
 
             loss = nn.functional.mse_loss(pred_noise, noise)
 
             self.optimizer.zero_grad()
             loss.backward()
+            
+            # Optional: gradient clipping for stability
+            # torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+            
             self.optimizer.step()
 
             total_loss += loss.detach()
+            num_batches += 1
 
+        # Aggregate across all processes
         dist.all_reduce(total_loss, op=dist.ReduceOp.SUM)
-        return total_loss.item() / (len(self.train_loader) * self.world_size)
+        num_batches_tensor = torch.tensor(num_batches, device=self.device)
+        dist.all_reduce(num_batches_tensor, op=dist.ReduceOp.SUM)
+        
+        return total_loss.item() / num_batches_tensor.item()
 
     @torch.no_grad()
     def valid_epoch(self):
@@ -185,10 +195,11 @@ class DDPMTrainer:
         total_loss = torch.tensor(0.0, device=self.device)
         total_psnr = torch.tensor(0.0, device=self.device)
         total_ssim = torch.tensor(0.0, device=self.device)
+        total_samples = 0
 
         for x0, cond in self.val_loader:
             x0 = x0.to(self.device)
-            cond = cond.to(self.device)
+            cond = cond.unsqueeze(1).to(self.device)  # FIXED: Added unsqueeze
 
             B = x0.size(0)
             t = torch.randint(0, self.T, (B,), device=self.device)
@@ -197,24 +208,41 @@ class DDPMTrainer:
             x_t = self.diffusion.q_sample(x0, t, noise)
             pred_noise = self.model(x_t, cond, t)
 
-            loss = nn.functional.mse_loss(pred_noise, noise)
-            total_loss += loss.detach()
-            # Denoising backward pass
+            loss = nn.functional.mse_loss(pred_noise, noise, reduction='sum')
+            total_loss += loss
+            
+            # Estimate x0 from predicted noise
             alpha_bar = self.diffusion.alphas_cumprod[t].view(-1, 1, 1, 1)
             x0_pred = (x_t - torch.sqrt(1 - alpha_bar) * pred_noise) / torch.sqrt(alpha_bar)
             x0_pred = x0_pred.clamp(-1, 1)
 
+            # Compute metrics per sample
             for i in range(B):
                 gt = x0[i].cpu().numpy().transpose(1, 2, 0)
                 pr = x0_pred[i].cpu().numpy().transpose(1, 2, 0)
+                
+                # Handle single channel
+                if gt.shape[2] == 1:
+                    gt = gt.squeeze(-1)
+                    pr = pr.squeeze(-1)
 
-                total_psnr += peak_signal_noise_ratio(gt, pr, data_range=2)
-                total_ssim += structural_similarity(gt, pr, channel_axis=-1, data_range=2)
+                psnr = peak_signal_noise_ratio(gt, pr, data_range=2.0)
+                ssim_val = structural_similarity(
+                    gt, pr, 
+                    channel_axis=-1 if len(gt.shape) == 3 else None,
+                    data_range=2.0
+                )
+                
+                total_psnr += psnr
+                total_ssim += ssim_val
+                total_samples += 1
 
-        for tensor in (total_loss, total_psnr, total_ssim):
+        # Aggregate across processes
+        total_samples_tensor = torch.tensor(total_samples, device=self.device)
+        for tensor in (total_loss, total_psnr, total_ssim, total_samples_tensor):
             dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
 
-        n = len(self.val_loader.dataset)
+        n = total_samples_tensor.item()
         return (
             total_loss.item() / n,
             total_psnr.item() / n,
@@ -231,6 +259,9 @@ class DDPMTrainer:
         )
 
         for epoch in pbar:
+            # Set epoch for distributed sampler
+            self.train_loader.sampler.set_epoch(epoch)
+            
             train_loss = self.train_epoch()
             val_loss, psnr, ssim = self.valid_epoch()
 
@@ -252,13 +283,14 @@ class DDPMTrainer:
                     }
                 )
 
-            # early stopping
+            # Check for improvement
             improved = (
                 val_loss < self.best_metric
                 if self.criterion == "min"
                 else val_loss > self.best_metric
             )
 
+            # Synchronize improvement decision across all ranks
             improved_tensor = torch.tensor(int(improved), device=self.device)
             dist.all_reduce(improved_tensor, op=dist.ReduceOp.MAX)
 
@@ -267,9 +299,11 @@ class DDPMTrainer:
                 self.bad_epochs = 0
                 if self.rank == 0:
                     torch.save(self.model.module.state_dict(), self.best_model_path)
+                    print(f"\n✓ Saved best model (val_loss: {val_loss:.4f})")
             else:
                 self.bad_epochs += 1
 
+            # Early stopping check
             stop_tensor = torch.tensor(
                 int(self.early_stop_enabled and self.bad_epochs >= self.patience),
                 device=self.device,
@@ -279,5 +313,8 @@ class DDPMTrainer:
             if stop_tensor.item():
                 if self.rank == 0:
                     pbar.close()
-                    print("Early stopping triggered.")
+                    print(f"\nEarly stopping triggered after {epoch + 1} epochs.")
                 break
+        
+        if self.rank == 0:
+            print(f"\nTraining complete. Best val_loss: {self.best_metric:.4f}")

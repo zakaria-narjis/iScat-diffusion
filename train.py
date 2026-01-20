@@ -76,7 +76,6 @@ Main Steps:
 import os
 import re
 import random
-import json
 from datetime import datetime
 
 import numpy as np
@@ -88,8 +87,8 @@ from omegaconf import OmegaConf
 
 from src.datasets.dataset import iScatDataset
 from src.trainers.trainer import DDPMTrainer
-from src.models.unet import U_Net  # adjust import if needed
-from src.test import test  # placeholder, implemented later
+from src.models.model import U_Net  # adjust import if needed
+from test import test  # placeholder, implemented later
 
 
 # -----------------------------
@@ -186,7 +185,7 @@ def main():
     # -------------------------------------------------
     # 2. Load config
     # -------------------------------------------------
-    config_path = os.environ.get("CONFIG_PATH", "config.yaml")
+    config_path = "configs/config.yaml"
     config = load_config(config_path)
 
     # -------------------------------------------------
@@ -221,12 +220,8 @@ def main():
     # 5. Datasets
     # -------------------------------------------------
     full_dataset = iScatDataset(
-        dataset_folder_path=config["data"]["dataset_folder_path"],
-        image_size=config["data"]["image_size"],
-        z_chunk_size=config["data"]["z_chunk_size"],
-        fluo_masks_indices=config["data"]["fluo_masks_indices"],
-        seg_method=config["data"]["seg_method"],
-        data_type=config["data"]["data_type"],
+        hdf5_path=config["data"]["dataset_folder_path"],
+        chunk_size=config["data"]["z_chunk_size"],
         normalize=config["data"]["normalize"],
         multi_class=config["data"]["multi_class"],
         apply_augmentation=True,
@@ -239,12 +234,8 @@ def main():
     )
 
     test_dataset = iScatDataset(
-        dataset_folder_path=config["data"]["dataset_folder_path"],
-        image_size=config["data"]["image_size"],
-        z_chunk_size=config["data"]["z_chunk_size"],
-        fluo_masks_indices=config["data"]["fluo_masks_indices"],
-        seg_method=config["data"]["seg_method"],
-        data_type=config["data"]["data_type"],
+        hdf5_path=config["data"]["dataset_folder_path"],
+        chunk_size=config["data"]["z_chunk_size"],
         normalize=config["data"]["normalize"],
         multi_class=config["data"]["multi_class"],
         apply_augmentation=False,
@@ -267,8 +258,9 @@ def main():
     # 7. Model
     # -------------------------------------------------
     model = U_Net(
-        img_ch=len(config["data"]["z_chunk_size"]),
-        output_ch=len(config["data"]["z_chunk_size"]),
+        img_ch=config["data"]["z_chunk_size"],
+        cond_ch=1,
+        output_ch=config["data"]["z_chunk_size"],
     ).to(device)
 
     # -------------------------------------------------
@@ -293,14 +285,13 @@ def main():
     # -------------------------------------------------
     # 10. Testing
     # -------------------------------------------------
-    if rank == 0:
-        test(
-            model=model,
-            test_loader=test_loader,
-            device=device,
-            config=config,
-            checkpoint_path=os.path.join(output_dir, "best_model.pt"),
-        )
+    test(
+        model=model,
+        test_loader=test_loader,
+        device=device,
+        config=config,
+        checkpoint_path=os.path.join(output_dir, "best_model.pt"),
+    )
 
     # -------------------------------------------------
     # 11. Cleanup

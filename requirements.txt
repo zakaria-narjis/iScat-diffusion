@@ -1,0 +1,20 @@
+# Core scientific stack
+numpy==1.26.3
+pandas==2.2.2
+matplotlib==3.9.3
+h5py==3.12.1
+tqdm==4.67.1
+scikit-learn==1.6.1
+scikit-image==0.26.0
+opencv-python==4.10.0.84
+
+# PyTorch + vision
+torch==2.7.1
+torchvision==0.22.1
+
+# Medical imaging
+monai==1.4.0
+
+# Config / logs
+tensorboard==2.19.0
+omegaconf==2.3.0
