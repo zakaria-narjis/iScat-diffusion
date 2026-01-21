@@ -71,3 +71,5 @@ We can start with **pixel-space conditional DDPM** for ISCAT microscopy images w
   - [What are Diffusion Models?](https://lilianweng.github.io/posts/2021-07-11-diffusion-models/)
   - [Denoising diffusion probabilistic models DPPM paper](https://arxiv.org/pdf/2006.11239)
   - [Latent diffusion model LDM](https://arxiv.org/abs/2112.10752)
+  - [Denoising Diffusion Implicit Models DDIM](https://arxiv.org/abs/2010.02502) (More sample efficient than ddpm)
+  - [batchnorm vs GroupNorm](https://apxml.com/courses/advanced-diffusion-architectures/chapter-2-advanced-unet-architectures/unet-normalization-techniques)

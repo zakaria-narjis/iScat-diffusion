@@ -71,7 +71,6 @@ import torch.nn as nn
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from tqdm import tqdm
-from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
 from src.utils.diffusion import Diffusion
 
@@ -191,63 +190,28 @@ class DDPMTrainer:
     @torch.no_grad()
     def valid_epoch(self):
         self.model.eval()
-
         total_loss = torch.tensor(0.0, device=self.device)
-        total_psnr = torch.tensor(0.0, device=self.device)
-        total_ssim = torch.tensor(0.0, device=self.device)
-        total_samples = 0
-
+        
         for x0, cond in self.val_loader:
             x0 = x0.to(self.device)
-            cond = cond.unsqueeze(1).to(self.device)  # FIXED: Added unsqueeze
-
+            cond = cond.unsqueeze(1).to(self.device)
+            
             B = x0.size(0)
             t = torch.randint(0, self.T, (B,), device=self.device)
             noise = torch.randn_like(x0)
-
+            
             x_t = self.diffusion.q_sample(x0, t, noise)
             pred_noise = self.model(x_t, cond, t)
-
-            loss = nn.functional.mse_loss(pred_noise, noise, reduction='sum')
-            total_loss += loss
             
-            # Estimate x0 from predicted noise
-            alpha_bar = self.diffusion.alphas_cumprod[t].view(-1, 1, 1, 1)
-            x0_pred = (x_t - torch.sqrt(1 - alpha_bar) * pred_noise) / torch.sqrt(alpha_bar)
-            x0_pred = x0_pred.clamp(-1, 1)
-
-            # Compute metrics per sample
-            for i in range(B):
-                gt = x0[i].cpu().numpy().transpose(1, 2, 0)
-                pr = x0_pred[i].cpu().numpy().transpose(1, 2, 0)
-                
-                # Handle single channel
-                if gt.shape[2] == 1:
-                    gt = gt.squeeze(-1)
-                    pr = pr.squeeze(-1)
-
-                psnr = peak_signal_noise_ratio(gt, pr, data_range=2.0)
-                ssim_val = structural_similarity(
-                    gt, pr, 
-                    channel_axis=-1 if len(gt.shape) == 3 else None,
-                    data_range=2.0
-                )
-                
-                total_psnr += psnr
-                total_ssim += ssim_val
-                total_samples += 1
-
-        # Aggregate across processes
-        total_samples_tensor = torch.tensor(total_samples, device=self.device)
-        for tensor in (total_loss, total_psnr, total_ssim, total_samples_tensor):
-            dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
-
-        n = total_samples_tensor.item()
-        return (
-            total_loss.item() / n,
-            total_psnr.item() / n,
-            total_ssim.item() / n,
-        )
+            loss = nn.functional.mse_loss(pred_noise, noise)
+            total_loss += loss.detach()
+        
+        # Aggregate
+        num_batches = torch.tensor(len(self.val_loader), device=self.device)
+        dist.all_reduce(total_loss, op=dist.ReduceOp.SUM)
+        dist.all_reduce(num_batches, op=dist.ReduceOp.SUM)
+        
+        return total_loss.item() / num_batches.item()
 
     def train(self):
         num_epochs = self.config["training"]["num_epochs"]
@@ -263,7 +227,7 @@ class DDPMTrainer:
             self.train_loader.sampler.set_epoch(epoch)
             
             train_loss = self.train_epoch()
-            val_loss, psnr, ssim = self.valid_epoch()
+            val_loss = self.valid_epoch()
 
             if self.config["training"]["scheduler"]["type"] == "ReduceLROnPlateau":
                 self.scheduler.step(val_loss)
@@ -277,9 +241,8 @@ class DDPMTrainer:
                     {
                         "train": f"{train_loss:.4f}",
                         "val": f"{val_loss:.4f}",
-                        "psnr": f"{psnr:.2f}",
-                        "ssim": f"{ssim:.4f}",
                         "lr": f"{lr:.2e}",
+                        "patience": f"{self.bad_epochs}/{self.patience}",
                     }
                 )
 

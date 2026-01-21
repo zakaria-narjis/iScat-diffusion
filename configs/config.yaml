@@ -11,21 +11,21 @@ data:
   dataset_folder_path: "/scratch/narjis/iscat_data/brightfield.hdf5"
 
   train_dataset:
-    num_workers: 2
+    num_workers: 4
     apply_augmentation: true
     normalize: ${data.normalize}
     classes: ${data.fluo_masks_indices}
     multi_class: ${data.multi_class}
 
   valid_dataset:
-    num_workers: 2
+    num_workers: 4
     apply_augmentation: false
     normalize: ${data.normalize}
     classes: ${data.fluo_masks_indices}
     multi_class: ${data.multi_class}
 
 training:
-  batch_size: 32
+  batch_size: 64
   num_epochs: 400
   train_split_size: 0.9
 
@@ -33,7 +33,7 @@ training:
     type: "AdamW"
     parameters:
       lr: 1e-4
-      weight_decay: 1e-4
+      weight_decay: 1e-6
       betas: [0.9, 0.999]
 
   scheduler:
@@ -55,7 +55,7 @@ training:
 
 diffusion:
   timesteps: 1000
-  beta_schedule: "linear"   # "linear" or "cosine"
+  beta_schedule: "cosine"   # "linear" or "cosine"
 
 model:
   type: "U_Net"
@@ -64,3 +64,10 @@ model:
 
 output:
   output_dir: "./experiments"
+
+# Test configuration
+test:
+  num_examples: 5  # Number of visualization examples to save
+  sampling_method: "ddim"  # "ddpm" or "ddim"
+  sampling_steps: 500  # Number of denoising steps at test time (much faster than training timesteps)
+  ddim_eta: 0.0  # 0.0 = deterministic, 1.0 = stochastic (DDPM-like)

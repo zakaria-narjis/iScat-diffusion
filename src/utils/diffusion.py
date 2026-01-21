@@ -24,34 +24,55 @@ def cosine_beta_schedule(timesteps, s=0.008):
 
 
 class Diffusion:
-    def __init__(self, timesteps=1000, beta_schedule="linear", device="cpu"):
+    def __init__(self, timesteps=1000, beta_schedule="linear", device="cpu", 
+                 betas=None, alphas=None, alphas_cumprod=None):
+        """
+        Initialize Diffusion object.
+        
+        Args:
+            timesteps: number of diffusion timesteps
+            beta_schedule: "linear" or "cosine"
+            device: torch device
+            betas: optional pre-computed betas (for loading from checkpoint)
+            alphas: optional pre-computed alphas
+            alphas_cumprod: optional pre-computed cumulative product of alphas
+        """
         self.timesteps = timesteps
         self.device = device
 
-        # choose beta schedule
-        if beta_schedule == "linear":
-            betas = linear_beta_schedule(timesteps)
-        elif beta_schedule == "cosine":
-            betas = cosine_beta_schedule(timesteps)
+        # Allow loading pre-computed schedules (for exact reproduction)
+        if betas is not None:
+            self.betas = betas.to(device)
         else:
-            raise ValueError(f"Unknown beta schedule: {beta_schedule}")
-
-        self.betas = betas.to(device)
+            # Choose beta schedule
+            if beta_schedule == "linear":
+                betas = linear_beta_schedule(timesteps)
+            elif beta_schedule == "cosine":
+                betas = cosine_beta_schedule(timesteps)
+            else:
+                raise ValueError(f"Unknown beta schedule: {beta_schedule}")
+            self.betas = betas.to(device)
 
         # α_t = 1 - β_t
-        self.alphas = 1.0 - self.betas
+        if alphas is not None:
+            self.alphas = alphas.to(device)
+        else:
+            self.alphas = 1.0 - self.betas
 
         # ᾱ_t = product_{i=1}^t α_i
-        self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
+        if alphas_cumprod is not None:
+            self.alphas_cumprod = alphas_cumprod.to(device)
+        else:
+            self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
 
-        # useful precomputed terms
+        # Useful precomputed terms
         self.sqrt_alphas_cumprod = torch.sqrt(self.alphas_cumprod)
         self.sqrt_one_minus_alphas_cumprod = torch.sqrt(1.0 - self.alphas_cumprod)
         
         # For reverse process
         self.sqrt_recip_alphas = torch.sqrt(1.0 / self.alphas)
         
-        # FIXED: Create tensor on the correct device
+        # Posterior variance
         alphas_cumprod_prev = torch.cat([
             torch.tensor([1.0], device=device), 
             self.alphas_cumprod[:-1]
@@ -60,6 +81,17 @@ class Diffusion:
         self.posterior_variance = (
             self.betas * (1.0 - alphas_cumprod_prev) / (1.0 - self.alphas_cumprod)
         )
+
+    def get_noise_schedule(self):
+        """
+        Return the noise schedule parameters for saving/loading.
+        Useful for ensuring test-time diffusion uses exact same schedule as training.
+        """
+        return {
+            'betas': self.betas,
+            'alphas': self.alphas,
+            'alphas_cumprod': self.alphas_cumprod,
+        }
 
     def q_sample(self, x0, t, noise):
         """
@@ -123,7 +155,7 @@ class Diffusion:
     @torch.no_grad()
     def p_sample_loop(self, model, shape, cond, num_steps=None):
         """
-        Full reverse diffusion: generate samples from noise
+        Full reverse diffusion: generate samples from noise using DDPM
         
         Args:
             model: denoising model
@@ -149,23 +181,25 @@ class Diffusion:
     @torch.no_grad()
     def ddim_sample(self, model, shape, cond, num_steps=50, eta=0.0):
         """
-        DDIM sampling for faster generation (optional enhancement)
+        DDIM sampling for faster generation.
         
         Args:
             model: denoising model
             shape: tuple (B, C, H, W)
-            cond: conditioning mask
+            cond: conditioning mask (B, cond_ch, H, W)
             num_steps: number of sampling steps (much less than training steps)
-            eta: controls stochasticity (0 = deterministic, 1 = DDPM)
+            eta: controls stochasticity (0 = deterministic, 1 = DDPM-like)
         
         Returns:
             x_0: generated clean image
         """
-        # Select subset of timesteps
+        # Select subset of timesteps uniformly
+        # We want to sample from T-1 down to 0
         step_size = self.timesteps // num_steps
-        timesteps = torch.arange(0, self.timesteps, step_size, device=self.device)
-        timesteps = torch.flip(timesteps, [0])
+        timesteps = list(range(0, self.timesteps, step_size))
+        timesteps = list(reversed(timesteps))  # Start from highest timestep
         
+        # Start from pure noise
         x = torch.randn(shape, device=self.device)
         
         for i, t in enumerate(timesteps):
@@ -176,10 +210,11 @@ class Diffusion:
             
             alpha_bar_t = self.alphas_cumprod[t]
             
-            # Predict x0
+            # Predict x0 from x_t and predicted noise
             pred_x0 = (x - torch.sqrt(1 - alpha_bar_t) * pred_noise) / torch.sqrt(alpha_bar_t)
             pred_x0 = pred_x0.clamp(-1, 1)
             
+            # Check if this is the last step
             if i < len(timesteps) - 1:
                 t_prev = timesteps[i + 1]
                 alpha_bar_t_prev = self.alphas_cumprod[t_prev]
@@ -195,9 +230,10 @@ class Diffusion:
                 # Random noise
                 noise = torch.randn_like(x) if eta > 0 else 0
                 
-                # Update
+                # Update: x_{t-1} = sqrt(alpha_bar_{t-1}) * pred_x0 + dir_xt + sigma_t * noise
                 x = torch.sqrt(alpha_bar_t_prev) * pred_x0 + dir_xt + sigma_t * noise
             else:
+                # Final step: return predicted x0
                 x = pred_x0
         
         return x

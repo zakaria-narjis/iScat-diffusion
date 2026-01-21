@@ -25,7 +25,7 @@ class iScatDataset(Dataset):
 
         Args:
             hdf5_path (str): Path to the HDF5 file.
-            classes (list): Classes to include in the mask.
+            classes (list): Classes to include in the mask. 0: 80nm, 1: 300nm, 2: 600nm.
             apply_augmentation (bool): Whether to apply random flips/rotations.
             normalize (str): Normalization method ('minmax', 'zscore', or None).
             indices (list): Optional list of indices to subset the dataset.
@@ -121,5 +121,8 @@ class iScatDataset(Dataset):
             if random.random() > 0.5:
                 angle = random.choice([90, -90])
                 image, mask = TF.rotate(image, angle), TF.rotate(mask, angle)
+        # Normalize mask to be 0 and 1 if multiclass and len(classes)>1
+        mask = mask.float()
+        mask = mask / mask.max() if mask.max() > 0 else mask
 
         return image, mask #(chunk_size, H, W) mask shape is  (H,W) where 0 is background 1 is particle if multiclass is True (1 is 80nm 2 is 300nm ...)
