@@ -212,7 +212,6 @@ class Diffusion:
             
             # Predict x0 from x_t and predicted noise
             pred_x0 = (x - torch.sqrt(1 - alpha_bar_t) * pred_noise) / torch.sqrt(alpha_bar_t)
-            pred_x0 = pred_x0.clamp(-1, 1)
             
             # Check if this is the last step
             if i < len(timesteps) - 1:

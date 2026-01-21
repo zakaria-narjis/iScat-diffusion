@@ -70,5 +70,5 @@ output:
 test:
   num_examples: 5  # Number of visualization examples to save
   sampling_method: "ddim"  # "ddpm" or "ddim"
-  sampling_steps: 500  # Number of denoising steps at test time (much faster than training timesteps)
+  sampling_steps: 250  # Number of denoising steps at test time (much faster than training timesteps)
   ddim_eta: 0.0  # 0.0 = deterministic, 1.0 = stochastic (DDPM-like)
