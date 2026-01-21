@@ -123,6 +123,6 @@ class iScatDataset(Dataset):
                 image, mask = TF.rotate(image, angle), TF.rotate(mask, angle)
         # Normalize mask to be 0 and 1 if multiclass and len(classes)>1
         mask = mask.float()
-        mask = mask / mask.max() if mask.max() > 0 else mask
+        mask = mask / (len(self.classes) - 1)
 
         return image, mask #(chunk_size, H, W) mask shape is  (H,W) where 0 is background 1 is particle if multiclass is True (1 is 80nm 2 is 300nm ...)
