@@ -1,0 +1,72 @@
+seed: 0
+experiment_name: iscat_ddpm
+data:
+  image_size: 256
+  z_chunk_size: 16
+  fluo_masks_indices:
+  - 0
+  - 1
+  seg_method: comdet
+  data_type: Brightfield
+  normalize: zscore
+  multi_class: true
+  dataset_folder_path: /scratch/narjis/iscat_data/brightfield.hdf5
+  train_dataset:
+    num_workers: 4
+    apply_augmentation: true
+    normalize: zscore
+    classes:
+    - 0
+    - 1
+    multi_class: true
+  valid_dataset:
+    num_workers: 4
+    apply_augmentation: false
+    normalize: zscore
+    classes:
+    - 0
+    - 1
+    multi_class: true
+training:
+  batch_size: 64
+  num_epochs: 400
+  train_split_size: 0.9
+  optimizer:
+    type: AdamW
+    parameters:
+      lr: 0.0001
+      weight_decay: 1.0e-06
+      betas:
+      - 0.9
+      - 0.999
+  scheduler:
+    type: ReduceLROnPlateau
+    parameters:
+      mode: min
+      factor: 0.1
+      patience: 8
+      T_max: 400
+      eta_min: 1.0e-06
+  loss.:
+    class_weights:
+    - 1.0
+    - 5.0
+    - 5.0
+  early_stopping:
+    enabled: true
+    patience: 20
+    criterion: min
+diffusion:
+  timesteps: 1000
+  beta_schedule: cosine
+model:
+  type: U_Net
+  unet:
+    init_features: 64
+output:
+  output_dir: ./experiments
+test:
+  num_examples: 5
+  sampling_method: ddim
+  sampling_steps: 500
+  ddim_eta: 0.0

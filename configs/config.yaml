@@ -47,7 +47,8 @@ training:
       # CosineAnnealingLR
       T_max: 400
       eta_min: 1e-6
-
+  loss.:
+    class_weights : [1.0, 5.0, 5.0]  # Weights for each class in multi-class setting
   early_stopping:
     enabled: true
     patience: 20

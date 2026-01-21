@@ -64,7 +64,7 @@ Trainer class for Conditional Diffusion (DDPM) on ISCAT Microscopy images.
     - Save state_dict to disk (optionally only on rank 0)
 """
 
-# %%
+
 import os
 import torch
 import torch.nn as nn
@@ -136,6 +136,19 @@ class DDPMTrainer:
         )
         self.T = self.diffusion.timesteps
 
+        # Loss Weighting
+        # We look for "class_weights" in config['training']['loss']
+        loss_cfg = config["training"].get("loss", {})
+        self.class_weights = loss_cfg.get("class_weights", None)
+        
+        if self.class_weights is not None:
+            # Convert list to tensor and move to device
+            self.class_weights = torch.tensor(
+                self.class_weights, device=self.device, dtype=torch.float32
+            )
+            if self.rank == 0:
+                print(f"Using class-weighted loss: {self.class_weights.tolist()}")
+
         # early stopping
         es_cfg = config["training"]["early_stopping"]
         self.early_stop_enabled = es_cfg["enabled"]
@@ -150,6 +163,30 @@ class DDPMTrainer:
 
         if self.rank == 0:
             os.makedirs(self.output_dir, exist_ok=True)
+
+    def _compute_loss(self, pred_noise, noise, cond):
+        """
+        Helper to calculate weighted or unweighted MSE loss.
+        """
+        if self.class_weights is None:
+            # Standard MSE
+            return nn.functional.mse_loss(pred_noise, noise)
+        else:
+            # Weighted MSE
+            # 1. Calculate per-pixel squared error
+            loss_pixel = nn.functional.mse_loss(pred_noise, noise, reduction='none')
+            
+            # 2. Create weight map from condition mask
+            # cond is (B, 1, H, W). We use it to index the weights tensor.
+            # cond.long() ensures we have integer indices [0, 1, 2...]
+            weight_map = self.class_weights[cond.long()] 
+            
+            # 3. Apply weights
+            # weight_map shape matches cond (B, 1, H, W) which broadcasts to loss_pixel (B, C, H, W)
+            weighted_loss = loss_pixel * weight_map
+            
+            # 4. Return mean
+            return weighted_loss.mean()
 
     def train_epoch(self):
         self.model.train()
@@ -167,13 +204,10 @@ class DDPMTrainer:
             x_t = self.diffusion.q_sample(x0, t, noise)  # (B, C, H, W)
             pred_noise = self.model(x_t, cond, t)
 
-            loss = nn.functional.mse_loss(pred_noise, noise)
+            loss = self._compute_loss(pred_noise, noise, cond)
 
             self.optimizer.zero_grad()
             loss.backward()
-            
-            # Optional: gradient clipping for stability
-            # torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             
             self.optimizer.step()
 
@@ -203,7 +237,7 @@ class DDPMTrainer:
             x_t = self.diffusion.q_sample(x0, t, noise)
             pred_noise = self.model(x_t, cond, t)
             
-            loss = nn.functional.mse_loss(pred_noise, noise)
+            loss = self._compute_loss(pred_noise, noise, cond)
             total_loss += loss.detach()
         
         # Aggregate

@@ -1,0 +1,10 @@
+{
+    "mse": 1087341.7028714106,
+    "psnr": 5.863209318430087,
+    "ssim": 0.00071108400747273,
+    "num_samples": 1602,
+    "sampling_method": "ddim",
+    "sampling_steps": 250,
+    "training_timesteps": 1000,
+    "ddim_eta": 0.0
+}
