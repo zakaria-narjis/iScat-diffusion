@@ -138,8 +138,8 @@ class DDPMTrainer:
 
         # Loss Weighting
         # We look for "class_weights" in config['training']['loss']
-        loss_cfg = config["training"].get("loss", {})
-        self.class_weights = loss_cfg.get("class_weights", None)
+        loss_cfg = config["training"]["loss"]
+        self.class_weights = loss_cfg["class_weights"]
         
         if self.class_weights is not None:
             # Convert list to tensor and move to device
@@ -165,28 +165,23 @@ class DDPMTrainer:
             os.makedirs(self.output_dir, exist_ok=True)
 
     def _compute_loss(self, pred_noise, noise, cond):
-        """
-        Helper to calculate weighted or unweighted MSE loss.
-        """
         if self.class_weights is None:
-            # Standard MSE
             return nn.functional.mse_loss(pred_noise, noise)
-        else:
-            # Weighted MSE
-            # 1. Calculate per-pixel squared error
-            loss_pixel = nn.functional.mse_loss(pred_noise, noise, reduction='none')
-            
-            # 2. Create weight map from condition mask
-            # cond is (B, 1, H, W). We use it to index the weights tensor.
-            # cond.long() ensures we have integer indices [0, 1, 2...]
-            weight_map = self.class_weights[cond.long()] 
-            
-            # 3. Apply weights
-            # weight_map shape matches cond (B, 1, H, W) which broadcasts to loss_pixel (B, C, H, W)
-            weighted_loss = loss_pixel * weight_map
-            
-            # 4. Return mean
-            return weighted_loss.mean()
+        
+        # 1. Per-pixel squared error: (B, C, H, W)
+        loss_pixel = nn.functional.mse_loss(pred_noise, noise, reduction='none')
+        
+        # 2. Correctly index and squeeze weight map
+        # cond is (B, 1, H, W) -> indices must be (B, H, W)
+        indices = cond.squeeze(1).long()
+        weight_map = self.class_weights[indices] # Result: (B, H, W)
+        
+        # 3. Add channel dim back for broadcasting: (B, 1, H, W)
+        weight_map = weight_map.unsqueeze(1)
+        
+        # 4. Apply and mean
+        return (loss_pixel * weight_map).mean()
+        
 
     def train_epoch(self):
         self.model.train()

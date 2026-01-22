@@ -98,11 +98,11 @@ def test(model, test_loader, device, config, checkpoint_path):
     )
 
     # Get test configuration
-    test_cfg = config.get("test", {})
-    sampling_method = test_cfg.get("sampling_method", "ddim")
-    sampling_steps = test_cfg.get("sampling_steps", 50)
-    ddim_eta = test_cfg.get("ddim_eta", 0.0)
-    max_examples = test_cfg.get("num_examples", 5)
+    test_cfg = config["test"]
+    sampling_method = test_cfg["sampling_method"]
+    sampling_steps = test_cfg["sampling_steps"]
+    ddim_eta = test_cfg["ddim_eta"]
+    max_examples = test_cfg["num_examples"]
 
     if rank == 0:
         print(f"\nTest Configuration:")

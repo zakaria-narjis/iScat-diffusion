@@ -3,15 +3,15 @@ experiment_name: "iscat_ddpm"
 data:
   image_size: 256
   z_chunk_size: 16
-  fluo_masks_indices: [0, 1]
+  fluo_masks_indices: [0, 1] # 0: 80nm, 1: 300nm, 2: 600nm
   seg_method: "comdet"
   data_type: "Brightfield"
   normalize: "zscore"
-  multi_class: true
+  multi_class: true # If True the masks will have multiple classes (one per particle size+ class 0: background). If False, all particles are merged into one class.
   dataset_folder_path: "/scratch/narjis/iscat_data/brightfield.hdf5"
 
   train_dataset:
-    num_workers: 4
+    num_workers: 8
     apply_augmentation: true
     normalize: ${data.normalize}
     classes: ${data.fluo_masks_indices}
@@ -26,18 +26,18 @@ data:
 
 training:
   batch_size: 64
-  num_epochs: 400
+  num_epochs: 100
   train_split_size: 0.9
 
   optimizer:
     type: "AdamW"
     parameters:
-      lr: 1e-4
+      lr: 1e-3
       weight_decay: 1e-6
       betas: [0.9, 0.999]
 
   scheduler:
-    type: "ReduceLROnPlateau"   # or "CosineAnnealingLR"
+    type: "CosineAnnealingLR"   # or "CosineAnnealingLR" # ReduceLROnPlateau
     parameters:
       # ReduceLROnPlateau
       mode: "min"
@@ -45,17 +45,17 @@ training:
       patience: 8
 
       # CosineAnnealingLR
-      T_max: 400
+      T_max: 100
       eta_min: 1e-6
-  loss.:
-    class_weights : [1.0, 5.0, 5.0]  # Weights for each class in multi-class setting
+  loss:
+    class_weights : [1,10.0, 10.0]  # Weights for each class in multi-class setting
   early_stopping:
     enabled: true
     patience: 20
     criterion: "min"   # "min" or "max"
 
 diffusion:
-  timesteps: 1000
+  timesteps: 2000
   beta_schedule: "cosine"   # "linear" or "cosine"
 
 model:
@@ -70,5 +70,5 @@ output:
 test:
   num_examples: 5  # Number of visualization examples to save
   sampling_method: "ddim"  # "ddpm" or "ddim"
-  sampling_steps: 250  # Number of denoising steps at test time (much faster than training timesteps)
+  sampling_steps: 200  # Number of denoising steps at test time (much faster than training timesteps)
   ddim_eta: 0.0  # 0.0 = deterministic, 1.0 = stochastic (DDPM-like)

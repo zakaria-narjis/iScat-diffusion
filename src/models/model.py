@@ -102,7 +102,7 @@ class ResBlockFiLM(nn.Module):
 
         if cond_feat is not None:
             # Resize cond_feat to match current spatial size
-            cond_resized = F.interpolate(cond_feat, size=h.shape[2:], mode='nearest')
+            cond_resized = F.interpolate(cond_feat, size=h.shape[2:], mode='bilinear')
             scale_c, shift_c = self.cond_proj(cond_resized).chunk(2, dim=1)
             h = h * (1 + scale_t + scale_c) + (shift_t + shift_c)
         else:

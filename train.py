@@ -221,6 +221,7 @@ def main():
     # -------------------------------------------------
     full_dataset = iScatDataset(
         hdf5_path=config["data"]["dataset_folder_path"],
+        classes=config["data"]["fluo_masks_indices"],
         chunk_size=config["data"]["z_chunk_size"],
         normalize=config["data"]["normalize"],
         multi_class=config["data"]["multi_class"],
@@ -235,6 +236,7 @@ def main():
 
     test_dataset = iScatDataset(
         hdf5_path=config["data"]["dataset_folder_path"],
+        classes=config["data"]["fluo_masks_indices"],
         chunk_size=config["data"]["z_chunk_size"],
         normalize=config["data"]["normalize"],
         multi_class=config["data"]["multi_class"],
