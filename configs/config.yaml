@@ -3,10 +3,12 @@ experiment_name: "iscat_ddpm"
 data:
   image_size: 256
   z_chunk_size: 16
+  mask_channels: 3  # Number of mask channels (particle sizes+background)
   fluo_masks_indices: [0, 1] # 0: 80nm, 1: 300nm, 2: 600nm
   seg_method: "comdet"
+  one_hot_encode: True
   data_type: "Brightfield"
-  normalize: "zscore"
+  normalize: "global_zscore" # "minmax" or "zscore" or "global_zscore"
   multi_class: true # If True the masks will have multiple classes (one per particle size+ class 0: background). If False, all particles are merged into one class.
   dataset_folder_path: "/scratch/narjis/iscat_data/brightfield.hdf5"
 
@@ -26,7 +28,7 @@ data:
 
 training:
   batch_size: 64
-  num_epochs: 100
+  num_epochs: 400
   train_split_size: 0.9
 
   optimizer:
@@ -45,17 +47,17 @@ training:
       patience: 8
 
       # CosineAnnealingLR
-      T_max: 100
+      T_max: 400
       eta_min: 1e-6
   loss:
-    class_weights : [1,10.0, 10.0]  # Weights for each class in multi-class setting
+    class_weights : [0.10,10.0, 100.0]  # Weights for each class in multi-class setting
   early_stopping:
     enabled: true
-    patience: 20
+    patience: 40
     criterion: "min"   # "min" or "max"
 
 diffusion:
-  timesteps: 2000
+  timesteps: 1000
   beta_schedule: "cosine"   # "linear" or "cosine"
 
 model:
@@ -70,5 +72,5 @@ output:
 test:
   num_examples: 5  # Number of visualization examples to save
   sampling_method: "ddim"  # "ddpm" or "ddim"
-  sampling_steps: 200  # Number of denoising steps at test time (much faster than training timesteps)
+  sampling_steps: 250  # Number of denoising steps at test time (much faster than training timesteps)
   ddim_eta: 0.0  # 0.0 = deterministic, 1.0 = stochastic (DDPM-like)

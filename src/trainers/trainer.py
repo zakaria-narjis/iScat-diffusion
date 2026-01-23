@@ -165,21 +165,21 @@ class DDPMTrainer:
             os.makedirs(self.output_dir, exist_ok=True)
 
     def _compute_loss(self, pred_noise, noise, cond):
+        # cond is now (B, 3, H, W) one-hot encoded
         if self.class_weights is None:
             return nn.functional.mse_loss(pred_noise, noise)
         
-        # 1. Per-pixel squared error: (B, C, H, W)
-        loss_pixel = nn.functional.mse_loss(pred_noise, noise, reduction='none')
+        loss_pixel = nn.functional.mse_loss(pred_noise, noise, reduction='none') # (B, C, H, W)
         
-        # 2. Correctly index and squeeze weight map
-        # cond is (B, 1, H, W) -> indices must be (B, H, W)
-        indices = cond.squeeze(1).long()
-        weight_map = self.class_weights[indices] # Result: (B, H, W)
+        # Create weight map from one-hot mask
+        # We contract the one-hot channel back to a weight map
+        # self.class_weights should be shape (3,) -> [1.0, 10.0, 10.0]
         
-        # 3. Add channel dim back for broadcasting: (B, 1, H, W)
-        weight_map = weight_map.unsqueeze(1)
+        # Broadcast weights: (1, 3, 1, 1) * (B, 3, H, W) -> sum over class dim -> (B, 1, H, W)
+        # This creates a weight map where every pixel gets the weight of its active class
+        weights = self.class_weights.view(1, -1, 1, 1) 
+        weight_map = (cond * weights).sum(dim=1, keepdim=True) # (B, 1, H, W)
         
-        # 4. Apply and mean
         return (loss_pixel * weight_map).mean()
         
 
@@ -190,7 +190,9 @@ class DDPMTrainer:
 
         for x0, cond in self.train_loader:
             x0 = x0.to(self.device)
-            cond = cond.unsqueeze(1).to(self.device)  # (B, 1, H, W)
+            cond = cond.to(self.device)
+            if cond.dim() == 3:  # (B, H, W)
+                cond = cond.unsqueeze(1)  # -> (B, 1, H, W)
 
             B = x0.size(0)
             t = torch.randint(0, self.T, (B,), device=self.device)
@@ -223,8 +225,9 @@ class DDPMTrainer:
         
         for x0, cond in self.val_loader:
             x0 = x0.to(self.device)
-            cond = cond.unsqueeze(1).to(self.device)
-            
+            cond = cond.to(self.device)
+            if cond.dim() == 3:  # (B, H, W)
+                cond = cond.unsqueeze(1)  # -> (B, 1, H, W)
             B = x0.size(0)
             t = torch.randint(0, self.T, (B,), device=self.device)
             noise = torch.randn_like(x0)

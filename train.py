@@ -225,6 +225,7 @@ def main():
         chunk_size=config["data"]["z_chunk_size"],
         normalize=config["data"]["normalize"],
         multi_class=config["data"]["multi_class"],
+        one_hot_encode=config["data"]["one_hot_encode"],
         apply_augmentation=True,
     )
 
@@ -240,6 +241,7 @@ def main():
         chunk_size=config["data"]["z_chunk_size"],
         normalize=config["data"]["normalize"],
         multi_class=config["data"]["multi_class"],
+        one_hot_encode=config["data"]["one_hot_encode"],
         apply_augmentation=False,
     )
 
@@ -261,7 +263,7 @@ def main():
     # -------------------------------------------------
     model = U_Net(
         img_ch=config["data"]["z_chunk_size"],
-        cond_ch=1,
+        cond_ch=config["data"]["mask_channels"],
         output_ch=config["data"]["z_chunk_size"],
     ).to(device)
 

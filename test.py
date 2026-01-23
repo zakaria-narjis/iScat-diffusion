@@ -69,7 +69,7 @@ def test(model, test_loader, device, config, checkpoint_path):
     """
     Test trained DDPM model on test dataset.
 
-    Handles z-score normalized images and [0,1] condition masks correctly.
+    Handles multiple normalization methods and one-hot encoded masks.
     Supports DDP and aggregates metrics across GPUs.
     """
     # Get DDP info if available
@@ -103,6 +103,9 @@ def test(model, test_loader, device, config, checkpoint_path):
     sampling_steps = test_cfg["sampling_steps"]
     ddim_eta = test_cfg["ddim_eta"]
     max_examples = test_cfg["num_examples"]
+    
+    # Get normalization method from dataset config
+    normalize_method = config["data"]["normalize"]
 
     if rank == 0:
         print(f"\nTest Configuration:")
@@ -110,7 +113,8 @@ def test(model, test_loader, device, config, checkpoint_path):
         print(f"  Sampling steps: {sampling_steps}")
         if sampling_method == "ddim":
             print(f"  DDIM eta: {ddim_eta}")
-        print(f"  Training timesteps: {diff_cfg['timesteps']}\n")
+        print(f"  Training timesteps: {diff_cfg['timesteps']}")
+        print(f"  Normalization: {normalize_method}\n")
 
     # Metrics storage
     total_mse = torch.tensor(0.0, device=device)
@@ -124,7 +128,10 @@ def test(model, test_loader, device, config, checkpoint_path):
 
     for batch_idx, (x0_true, cond) in enumerate(pbar):
         x0_true = x0_true.to(device)
-        cond = cond.unsqueeze(1).to(device)  # (B, 1, H, W)
+        cond = cond.to(device)
+        # Handle both single-channel and multi-channel (one-hot) masks
+        if cond.dim() == 3:  # (B, H, W) - binary mask
+            cond = cond.unsqueeze(1).to(device)  # -> (B, 1, H, W)            
         B, C, H, W = x0_true.shape
 
         # Generate samples
@@ -146,20 +153,30 @@ def test(model, test_loader, device, config, checkpoint_path):
         total_mse += mse
         total_pixels += B * C * H * W
 
-        # Compute PSNR / SSIM per sample (normalize to [0,1] for metric only)
+        # Compute PSNR / SSIM per sample
         for i in range(B):
-            gt = x0_true[i].cpu().numpy()  # (C,H,W)
+            gt = x0_true[i].cpu().numpy()  # (C, H, W)
             pr = x0_pred[i].cpu().numpy()
-            gt = gt.transpose(1, 2, 0)
+            gt = gt.transpose(1, 2, 0)  # (H, W, C)
             pr = pr.transpose(1, 2, 0)
             if gt.shape[2] == 1:
                 gt = gt.squeeze(-1)
                 pr = pr.squeeze(-1)
-            # Normalize to [0,1] for metrics
-            min_val = min(gt.min(), pr.min())
-            max_val = max(gt.max(), pr.max())
-            gt_norm = (gt - min_val) / (max_val - min_val + 1e-8)
-            pr_norm = (pr - min_val) / (max_val - min_val + 1e-8)
+            
+            # Normalize to [0, 1] for metrics based on normalization method
+            if normalize_method == "global_minmax":
+                # Images are in [-1, 1], map to [0, 1]
+                gt_norm = (gt + 1.0) / 2.0
+                pr_norm = (pr + 1.0) / 2.0
+                # Clip to handle potential numerical issues
+                gt_norm = np.clip(gt_norm, 0, 1)
+                pr_norm = np.clip(pr_norm, 0, 1)
+            else:
+                # Adaptive normalization for other methods
+                min_val = min(gt.min(), pr.min())
+                max_val = max(gt.max(), pr.max())
+                gt_norm = (gt - min_val) / (max_val - min_val + 1e-8)
+                pr_norm = (pr - min_val) / (max_val - min_val + 1e-8)
 
             psnr = peak_signal_noise_ratio(gt_norm, pr_norm, data_range=1.0)
             if gt.ndim == 3:
@@ -202,7 +219,8 @@ def test(model, test_loader, device, config, checkpoint_path):
             "sampling_method": sampling_method,
             "sampling_steps": sampling_steps,
             "training_timesteps": diff_cfg["timesteps"],
-            "ddim_eta": ddim_eta if sampling_method=="ddim" else None
+            "ddim_eta": ddim_eta if sampling_method=="ddim" else None,
+            "normalization": normalize_method
         }
 
         metrics_path = os.path.join(output_dir, "test_metrics.json")
@@ -213,38 +231,57 @@ def test(model, test_loader, device, config, checkpoint_path):
         print("Test Results:")
         print(f"{'='*50}")
         print(f"Sampling: {sampling_method} ({sampling_steps} steps)")
+        print(f"Normalization: {normalize_method}")
         print(f"MSE:  {avg_mse:.6f}")
         print(f"PSNR: {avg_psnr:.2f} dB")
         print(f"SSIM: {avg_ssim:.4f}")
         print(f"{'='*50}\n")
 
         # Save visualizations
-        save_visualizations(examples, output_dir)
+        save_visualizations(examples, output_dir, normalize_method)
         print(f"Results saved to {output_dir}")
 
 
-def save_visualizations(examples, output_dir):
+def save_visualizations(examples, output_dir, normalize_method="minmax"):
+    """
+    Save visualization examples with proper handling of multi-channel masks.
+    """
     vis_dir = os.path.join(output_dir, "visualizations")
     os.makedirs(vis_dir, exist_ok=True)
 
     for idx, example in enumerate(examples):
         gt = example['ground_truth'].numpy()
         pred = example['predicted'].numpy()
-        cond = example['condition'].numpy().squeeze()
+        cond = example['condition'].numpy()
 
+        # Select middle frame for visualization
         mid_frame = gt.shape[0] // 2 if gt.shape[0] > 1 else 0
         gt_vis = gt[mid_frame] if gt.shape[0] > 1 else gt[0]
         pred_vis = pred[mid_frame] if pred.shape[0] > 1 else pred[0]
-        cond_vis = cond
+        
+        # Handle multi-channel masks (one-hot encoded)
+        if cond.shape[0] > 1:  # Multi-channel mask
+            # Convert one-hot to class labels for visualization
+            cond_vis = cond.argmax(0)  # (H, W) with class indices
+            cond_cmap = 'tab10'  # Categorical colormap
+            cond_vmin, cond_vmax = 0, cond.shape[0] - 1
+        else:  # Single-channel mask
+            cond_vis = cond.squeeze()
+            cond_cmap = 'gray'
+            cond_vmin, cond_vmax = 0, 1
 
         fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+        
         axes[0].imshow(gt_vis, cmap='gray', vmin=gt_vis.min(), vmax=gt_vis.max())
         axes[0].set_title('Ground Truth')
         axes[0].axis('off')
 
-        axes[1].imshow(cond_vis, cmap='gray', vmin=0, vmax=1)
+        im1 = axes[1].imshow(cond_vis, cmap=cond_cmap, vmin=cond_vmin, vmax=cond_vmax)
         axes[1].set_title('Condition Mask')
         axes[1].axis('off')
+        # Add colorbar for multi-class masks
+        if cond.shape[0] > 1:
+            plt.colorbar(im1, ax=axes[1], label='Class')
 
         axes[2].imshow(pred_vis, cmap='gray', vmin=pred_vis.min(), vmax=pred_vis.max())
         axes[2].set_title('Generated')
