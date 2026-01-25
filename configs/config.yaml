@@ -2,7 +2,7 @@ seed: 0
 experiment_name: "iscat_ddpm"
 data:
   image_size: 256
-  z_chunk_size: 16
+  z_chunk_size: 32
   mask_channels: 3  # Number of mask channels (particle sizes+background)
   fluo_masks_indices: [0, 1] # 0: 80nm, 1: 300nm, 2: 600nm
   seg_method: "comdet"
@@ -50,14 +50,14 @@ training:
       T_max: 400
       eta_min: 1e-6
   loss:
-    class_weights : [0.10,10.0, 100.0]  # Weights for each class in multi-class setting
+    class_weights : [1.0,10.0, 15.0]  # Weights for each class in multi-class setting
   early_stopping:
     enabled: true
     patience: 40
     criterion: "min"   # "min" or "max"
 
 diffusion:
-  timesteps: 1000
+  timesteps: 250
   beta_schedule: "cosine"   # "linear" or "cosine"
 
 model:
@@ -71,6 +71,6 @@ output:
 # Test configuration
 test:
   num_examples: 5  # Number of visualization examples to save
-  sampling_method: "ddim"  # "ddpm" or "ddim"
+  sampling_method: "ddpm"  # "ddpm" or "ddim"
   sampling_steps: 250  # Number of denoising steps at test time (much faster than training timesteps)
   ddim_eta: 0.0  # 0.0 = deterministic, 1.0 = stochastic (DDPM-like)

@@ -117,18 +117,44 @@ class ResBlockFiLM(nn.Module):
 # ----------------------------
 # Mask Encoder
 # ----------------------------
+# class MaskEncoder(nn.Module):
+#     def __init__(self, cond_ch, base_ch=64):
+#         super().__init__()
+#         self.net = nn.Sequential(
+#             nn.Conv2d(cond_ch, base_ch, 3, padding=1),
+#             nn.SiLU(),
+#             nn.Conv2d(base_ch, base_ch, 3, padding=1),
+#         )
+
+#     def forward(self, cond):
+#         return self.net(cond)
+    
 class MaskEncoder(nn.Module):
     def __init__(self, cond_ch, base_ch=64):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(cond_ch, base_ch, 3, padding=1),
-            nn.SiLU(),
+        # Initial projection
+        self.init_conv = nn.Conv2d(cond_ch, base_ch, 3, padding=1)
+        
+        # Increasing depth with residual layers
+        self.layer1 = nn.Sequential(
             nn.Conv2d(base_ch, base_ch, 3, padding=1),
+            nn.SiLU(),
+            nn.Conv2d(base_ch, base_ch, 3, padding=1)
         )
+        
+        # Downsampling layers to match U-Net resolution steps
+        self.down1 = nn.Conv2d(base_ch, base_ch, 4, stride=2, padding=1) # 256 -> 128
+        self.down2 = nn.Conv2d(base_ch, base_ch, 4, stride=2, padding=1) # 128 -> 64
+        self.down3 = nn.Conv2d(base_ch, base_ch, 4, stride=2, padding=1) # 64 -> 32
 
     def forward(self, cond):
-        return self.net(cond)
-
+        feat0 = self.init_conv(cond)
+        feat1 = self.layer1(feat0)
+        feat2 = self.down1(feat1)
+        feat3 = self.down2(feat2)
+        feat4 = self.down3(feat3)
+        # You can return a list of features for different U-Net layers
+        return [feat1, feat2, feat3, feat4]
 
 # ----------------------------
 # Upsample + Conv Block
@@ -190,34 +216,75 @@ class U_Net(nn.Module):
 
         self.Conv_1x1 = nn.Conv2d(64, output_ch, 1)
 
+    # def forward(self, x, cond, t):
+    #     # raw concat (cheap spatial prior)
+    #     x = torch.cat([x, cond], dim=1)
+
+    #     # timestep embedding
+    #     t_emb = self.time_mlp(get_time_embedding(t, self.temb_dim))
+
+    #     # mask features
+    #     cond_feat = self.mask_enc(cond)
+
+    #     # encoder
+    #     x1 = self.Conv1(x, t_emb, cond_feat)
+    #     x2 = self.Conv2(self.Maxpool(x1), t_emb, cond_feat)
+    #     x3 = self.Conv3(self.Maxpool(x2), t_emb, cond_feat)
+    #     x4 = self.Conv4(self.Maxpool(x3), t_emb, cond_feat)
+    #     x5 = self.Conv5(self.Maxpool(x4), t_emb, cond_feat)
+
+    #     # decoder
+    #     d5 = self.Up5(x5)
+    #     d5 = self.Up_conv5(torch.cat([x4, d5], dim=1), t_emb, cond_feat)
+
+    #     d4 = self.Up4(d5)
+    #     d4 = self.Up_conv4(torch.cat([x3, d4], dim=1), t_emb, cond_feat)
+
+    #     d3 = self.Up3(d4)
+    #     d3 = self.Up_conv3(torch.cat([x2, d3], dim=1), t_emb, cond_feat)
+
+    #     d2 = self.Up2(d3)
+    #     d2 = self.Up_conv2(torch.cat([x1, d2], dim=1), t_emb, cond_feat)
+
+    #     return self.Conv_1x1(d2)
+    
     def forward(self, x, cond, t):
-        # raw concat (cheap spatial prior)
-        x = torch.cat([x, cond], dim=1)
+            # 1. Timestep embedding
+            t_emb = self.time_mlp(get_time_embedding(t, self.temb_dim))
 
-        # timestep embedding
-        t_emb = self.time_mlp(get_time_embedding(t, self.temb_dim))
+            # 2. Mask features (Now returns a list of 4 tensors)
+            # [0]: 256x256, [1]: 128x128, [2]: 64x64, [3]: 32x32
+            cond_list = self.mask_enc(cond)
 
-        # mask features
-        cond_feat = self.mask_enc(cond)
+            # 3. Initial Concat
+            x = torch.cat([x, cond], dim=1)
 
-        # encoder
-        x1 = self.Conv1(x, t_emb, cond_feat)
-        x2 = self.Conv2(self.Maxpool(x1), t_emb, cond_feat)
-        x3 = self.Conv3(self.Maxpool(x2), t_emb, cond_feat)
-        x4 = self.Conv4(self.Maxpool(x3), t_emb, cond_feat)
-        x5 = self.Conv5(self.Maxpool(x4), t_emb, cond_feat)
+            # 4. Encoder
+            # Use cond_list[0] for the highest resolution blocks
+            x1 = self.Conv1(x, t_emb, cond_list[0]) 
+            
+            # Use cond_list[1] for the 128x128 blocks
+            x2 = self.Conv2(self.Maxpool(x1), t_emb, cond_list[1]) 
+            
+            # Use cond_list[2] for the 64x64 blocks
+            x3 = self.Conv3(self.Maxpool(x2), t_emb, cond_list[2]) 
+            
+            # Use cond_list[3] for the 32x32 and deeper blocks
+            x4 = self.Conv4(self.Maxpool(x3), t_emb, cond_list[3]) 
+            x5 = self.Conv5(self.Maxpool(x4), t_emb, cond_list[3]) 
 
-        # decoder
-        d5 = self.Up5(x5)
-        d5 = self.Up_conv5(torch.cat([x4, d5], dim=1), t_emb, cond_feat)
+            # 5. Decoder
+            # Match the resolution levels similarly for the upward path
+            d5 = self.Up5(x5)
+            d5 = self.Up_conv5(torch.cat([x4, d5], dim=1), t_emb, cond_list[3])
 
-        d4 = self.Up4(d5)
-        d4 = self.Up_conv4(torch.cat([x3, d4], dim=1), t_emb, cond_feat)
+            d4 = self.Up4(d5)
+            d4 = self.Up_conv4(torch.cat([x3, d4], dim=1), t_emb, cond_list[2])
 
-        d3 = self.Up3(d4)
-        d3 = self.Up_conv3(torch.cat([x2, d3], dim=1), t_emb, cond_feat)
+            d3 = self.Up3(d4)
+            d3 = self.Up_conv3(torch.cat([x2, d3], dim=1), t_emb, cond_list[1])
 
-        d2 = self.Up2(d3)
-        d2 = self.Up_conv2(torch.cat([x1, d2], dim=1), t_emb, cond_feat)
+            d2 = self.Up2(d3)
+            d2 = self.Up_conv2(torch.cat([x1, d2], dim=1), t_emb, cond_list[0])
 
-        return self.Conv_1x1(d2)
+            return self.Conv_1x1(d2)
