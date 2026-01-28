@@ -71,3 +71,13 @@ We can start with **pixel-space conditional DDPM** for ISCAT microscopy images w
   - [What are Diffusion Models?](https://lilianweng.github.io/posts/2021-07-11-diffusion-models/)
   - [Denoising diffusion probabilistic models DPPM paper](https://arxiv.org/pdf/2006.11239)
   - [Latent diffusion model LDM](https://arxiv.org/abs/2112.10752)
+  - [Dennoising Diffusion Implicit Models DDIM] (https://arxiv.org/abs/2112.10752)
+  - [batchnorm vs groupnorm] (https://apxml.com/courses/advanced-diffusion-architectures/chapter-2-advanced-unet-architectures/unet-normalization-techniques)
+  - [Can we recreate some of these (superresolution) deep learning technique for our case later on when we move to denosing?] 
+  -> https://pubs.acs.org/doi/pdf/10.1021/acs.analchem.1c02178?ref=article_openPDF
+  
+## Commands
+- ssh -J studentnumber@ssh-gate.uni-luebeck.de name@pc48.inb.uni-luebeck.de
+- nvidia-smi check if some other progresses are currently running
+-tmux new -t ddpm (start a tmux session if its not already running) if its already running use tmux attach
+- CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 train.py 2>&1 | tee training.log
