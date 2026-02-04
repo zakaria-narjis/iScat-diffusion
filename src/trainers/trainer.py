@@ -160,10 +160,25 @@ class DDPMTrainer:
 
         self.output_dir = config["output"]["output_dir"]
         self.best_model_path = os.path.join(self.output_dir, "best_model.pt")
-
+        self.use_contrast = config["model"]["contrast_conditioning"]["enabled"] 
         if self.rank == 0:
             os.makedirs(self.output_dir, exist_ok=True)
 
+    def _compute_style_metrics(self, x):
+        """
+        Calculates mean and std for each image in the batch to serve as 
+        style conditioning (brightness/contrast).
+        x: (B, C, H, W)
+        Returns: (B, 2) tensor containing [mean, std]
+        """
+        # Calculate over spatial dims (H, W) and channels (C)
+        # Result shape per metric: (B,)
+        batch_mean = x.mean(dim=[1, 2, 3])
+        batch_std = x.std(dim=[1, 2, 3])
+        
+        # Stack into (B, 2)
+        return torch.stack([batch_mean, batch_std], dim=1).to(self.device)
+    
     def _compute_loss(self, pred_noise, noise, cond):
         # cond is now (B, 3, H, W) one-hot encoded
         if self.class_weights is None:
@@ -194,12 +209,15 @@ class DDPMTrainer:
             if cond.dim() == 3:  # (B, H, W)
                 cond = cond.unsqueeze(1)  # -> (B, 1, H, W)
 
+            style_vals = self._compute_style_metrics(x0) if self.use_contrast else None
+
             B = x0.size(0)
             t = torch.randint(0, self.T, (B,), device=self.device)
             noise = torch.randn_like(x0)  # (B, C, H, W)
 
             x_t = self.diffusion.q_sample(x0, t, noise)  # (B, C, H, W)
-            pred_noise = self.model(x_t, cond, t)
+            
+            pred_noise = self.model(x_t, cond, t, style_vals)
 
             loss = self._compute_loss(pred_noise, noise, cond)
 
@@ -228,12 +246,16 @@ class DDPMTrainer:
             cond = cond.to(self.device)
             if cond.dim() == 3:  # (B, H, W)
                 cond = cond.unsqueeze(1)  # -> (B, 1, H, W)
+            
+            style_vals = self._compute_style_metrics(x0) if self.use_contrast else None
+
             B = x0.size(0)
             t = torch.randint(0, self.T, (B,), device=self.device)
             noise = torch.randn_like(x0)
             
             x_t = self.diffusion.q_sample(x0, t, noise)
-            pred_noise = self.model(x_t, cond, t)
+            
+            pred_noise = self.model(x_t, cond, t, style_vals)
             
             loss = self._compute_loss(pred_noise, noise, cond)
             total_loss += loss.detach()

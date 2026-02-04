@@ -8,10 +8,10 @@ data:
   seg_method: "comdet"
   one_hot_encode: True
   data_type: "Brightfield"
-  normalize: "global_zscore" # "minmax" or "zscore" or "global_zscore"
+  normalize: "zscore" # "minmax" or "zscore" or "global_zscore"
   multi_class: true # If True the masks will have multiple classes (one per particle size+ class 0: background). If False, all particles are merged into one class.
   dataset_folder_path: "/scratch/narjis/iscat_data/brightfield.hdf5"
-
+  indices: null
   train_dataset:
     num_workers: 8
     apply_augmentation: true
@@ -53,15 +53,17 @@ training:
     class_weights : [1.0,10.0, 15.0]  # Weights for each class in multi-class setting
   early_stopping:
     enabled: true
-    patience: 40
+    patience: 30
     criterion: "min"   # "min" or "max"
 
 diffusion:
-  timesteps: 250
+  timesteps: 1000
   beta_schedule: "cosine"   # "linear" or "cosine"
 
 model:
   type: "U_Net"
+  contrast_conditioning:
+    enabled: true
   unet:
     init_features: 64
 
@@ -70,7 +72,7 @@ output:
 
 # Test configuration
 test:
-  num_examples: 5  # Number of visualization examples to save
-  sampling_method: "ddpm"  # "ddpm" or "ddim"
+  num_examples: 8  # Number of visualization examples to save
+  sampling_method: "ddim"  # "ddpm" or "ddim"
   sampling_steps: 250  # Number of denoising steps at test time (much faster than training timesteps)
   ddim_eta: 0.0  # 0.0 = deterministic, 1.0 = stochastic (DDPM-like)

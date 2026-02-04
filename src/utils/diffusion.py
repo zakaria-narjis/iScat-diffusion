@@ -112,7 +112,7 @@ class Diffusion:
         return sqrt_alpha_bar_t * x0 + sqrt_one_minus_alpha_bar_t * noise
     
     @torch.no_grad()
-    def p_sample(self, model, x_t, t, cond):
+    def p_sample(self, model, x_t, t, cond, style_vals=None):
         """
         Single reverse diffusion step: sample x_{t-1} from x_t
         
@@ -129,7 +129,7 @@ class Diffusion:
         t_batch = torch.full((B,), t, device=self.device, dtype=torch.long)
         
         # Predict noise
-        pred_noise = model(x_t, cond, t_batch)
+        pred_noise = model(x_t, cond, t_batch, style_vals)
         
         # Get parameters for this timestep
         alpha_t = self.alphas[t]
@@ -153,7 +153,7 @@ class Diffusion:
         return x_t_minus_1
     
     @torch.no_grad()
-    def p_sample_loop(self, model, shape, cond, num_steps=None):
+    def p_sample_loop(self, model, shape, cond, style_vals=None, num_steps=None):
         """
         Full reverse diffusion: generate samples from noise using DDPM
         
@@ -174,12 +174,12 @@ class Diffusion:
         
         # Iteratively denoise
         for t in reversed(range(num_steps)):
-            x = self.p_sample(model, x, t, cond)
+            x = self.p_sample(model, x, t, cond, style_vals=style_vals)
         
         return x
     
     @torch.no_grad()
-    def ddim_sample(self, model, shape, cond, num_steps=50, eta=0.0):
+    def ddim_sample(self, model, shape, cond, style_vals=None, num_steps=50, eta=0.0):
         """
         DDIM sampling for faster generation.
         
@@ -206,7 +206,7 @@ class Diffusion:
             t_batch = torch.full((shape[0],), t, device=self.device, dtype=torch.long)
             
             # Predict noise
-            pred_noise = model(x, cond, t_batch)
+            pred_noise = model(x, cond, t_batch, style_vals)
             
             alpha_bar_t = self.alphas_cumprod[t]
             

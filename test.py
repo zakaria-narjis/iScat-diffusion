@@ -103,7 +103,7 @@ def test(model, test_loader, device, config, checkpoint_path):
     sampling_steps = test_cfg["sampling_steps"]
     ddim_eta = test_cfg["ddim_eta"]
     max_examples = test_cfg["num_examples"]
-    
+    use_contrast = config["model"]["contrast_conditioning"]["enabled"] 
     # Get normalization method from dataset config
     normalize_method = config["data"]["normalize"]
 
@@ -133,16 +133,27 @@ def test(model, test_loader, device, config, checkpoint_path):
         if cond.dim() == 3:  # (B, H, W) - binary mask
             cond = cond.unsqueeze(1).to(device)  # -> (B, 1, H, W)            
         B, C, H, W = x0_true.shape
-
+        style_vals = None
+        if use_contrast:
+            batch_mean = x0_true.mean(dim=[1, 2, 3])
+            batch_std = x0_true.std(dim=[1, 2, 3])
+            style_vals = torch.stack([batch_mean, batch_std], dim=1).to(device)
         # Generate samples
         if sampling_method == "ddim":
             x0_pred = diffusion.ddim_sample(
-                model=model, shape=(B, C, H, W), cond=cond,
-                num_steps=sampling_steps, eta=ddim_eta
+                model=model, 
+                shape=(B, C, H, W), 
+                cond=cond,
+                style_vals=style_vals,
+                num_steps=sampling_steps, 
+                eta=ddim_eta
             )
         elif sampling_method == "ddpm":
             x0_pred = diffusion.p_sample_loop(
-                model=model, shape=(B, C, H, W), cond=cond,
+                model=model, 
+                shape=(B, C, H, W), 
+                cond=cond,
+                style_vals=style_vals,
                 num_steps=sampling_steps
             )
         else:

@@ -87,7 +87,7 @@ from omegaconf import OmegaConf
 
 from src.datasets.dataset import iScatDataset
 from src.trainers.trainer import DDPMTrainer
-from src.models.model import U_Net  # adjust import if needed
+from src.models.model_contrast import U_Net  # adjust import if needed
 from test import test  # placeholder, implemented later
 
 
@@ -222,6 +222,7 @@ def main():
     full_dataset = iScatDataset(
         hdf5_path=config["data"]["dataset_folder_path"],
         classes=config["data"]["fluo_masks_indices"],
+        indices=config["data"]["indices"],
         chunk_size=config["data"]["z_chunk_size"],
         normalize=config["data"]["normalize"],
         multi_class=config["data"]["multi_class"],
@@ -238,6 +239,7 @@ def main():
     test_dataset = iScatDataset(
         hdf5_path=config["data"]["dataset_folder_path"],
         classes=config["data"]["fluo_masks_indices"],
+        indices=config["data"]["indices"],
         chunk_size=config["data"]["z_chunk_size"],
         normalize=config["data"]["normalize"],
         multi_class=config["data"]["multi_class"],
