@@ -59,7 +59,7 @@ training:
 diffusion:
   timesteps: 1000
   beta_schedule: "cosine"   # "linear" or "cosine"
-
+  cosine_smooth: 0.008  # Smoothing factor for cosine beta schedule
 model:
   type: "U_Net"
   contrast_conditioning:

@@ -267,6 +267,7 @@ def main():
         img_ch=config["data"]["z_chunk_size"],
         cond_ch=config["data"]["mask_channels"],
         output_ch=config["data"]["z_chunk_size"],
+        use_contrast_cond = config["model"]["contrast_conditioning"]["enabled"],
     ).to(device)
 
     # -------------------------------------------------

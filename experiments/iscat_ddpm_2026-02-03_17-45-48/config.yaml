@@ -62,8 +62,11 @@ training:
 diffusion:
   timesteps: 1000
   beta_schedule: cosine
+  cosine_smooth: 0.008
 model:
   type: U_Net
+  contrast_conditioning:
+    enabled: true
   unet:
     init_features: 64
 output:

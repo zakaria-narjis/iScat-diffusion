@@ -25,7 +25,7 @@ def cosine_beta_schedule(timesteps, s=0.008):
 
 class Diffusion:
     def __init__(self, timesteps=1000, beta_schedule="linear", device="cpu", 
-                 betas=None, alphas=None, alphas_cumprod=None):
+                 betas=None, alphas=None, alphas_cumprod=None, cosine_smooth=0.008):
         """
         Initialize Diffusion object.
         
@@ -48,7 +48,7 @@ class Diffusion:
             if beta_schedule == "linear":
                 betas = linear_beta_schedule(timesteps)
             elif beta_schedule == "cosine":
-                betas = cosine_beta_schedule(timesteps)
+                betas = cosine_beta_schedule(timesteps, s=cosine_smooth)
             else:
                 raise ValueError(f"Unknown beta schedule: {beta_schedule}")
             self.betas = betas.to(device)
@@ -66,7 +66,7 @@ class Diffusion:
             self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
 
         # Useful precomputed terms
-        self.sqrt_alphas_cumprod = torch.sqrt(self.alphas_cumprod)
+        self.sqrt_alphas_cumprod = torch.sqrt(self.alphas_cumprod).to(device)
         self.sqrt_one_minus_alphas_cumprod = torch.sqrt(1.0 - self.alphas_cumprod)
         
         # For reverse process
@@ -74,14 +74,14 @@ class Diffusion:
         
         # Posterior variance
         alphas_cumprod_prev = torch.cat([
-            torch.tensor([1.0], device=device), 
+            torch.ones(1, device=device, dtype=self.alphas_cumprod.dtype),
             self.alphas_cumprod[:-1]
         ])
         
         self.posterior_variance = (
             self.betas * (1.0 - alphas_cumprod_prev) / (1.0 - self.alphas_cumprod)
         )
-
+        self.posterior_variance = torch.clamp(self.posterior_variance, min=1e-20)
     def get_noise_schedule(self):
         """
         Return the noise schedule parameters for saving/loading.
@@ -195,10 +195,12 @@ class Diffusion:
         """
         # Select subset of timesteps uniformly
         # We want to sample from T-1 down to 0
-        step_size = self.timesteps // num_steps
-        timesteps = list(range(0, self.timesteps, step_size))
-        timesteps = list(reversed(timesteps))  # Start from highest timestep
-        
+        # step_size = self.timesteps // num_steps
+        # timesteps = list(range(0, self.timesteps, step_size))
+        # timesteps = list(reversed(timesteps))  # Start from highest timestep
+        timesteps = torch.linspace(
+            self.timesteps-1, 0, num_steps, dtype=torch.long
+        ).tolist()      
         # Start from pure noise
         x = torch.randn(shape, device=self.device)
         
@@ -227,8 +229,8 @@ class Diffusion:
                 dir_xt = torch.sqrt(1 - alpha_bar_t_prev - sigma_t**2) * pred_noise
                 
                 # Random noise
-                noise = torch.randn_like(x) if eta > 0 else 0
-                
+                noise = torch.randn_like(x) if eta > 0 else torch.zeros_like(x)
+               
                 # Update: x_{t-1} = sqrt(alpha_bar_{t-1}) * pred_x0 + dir_xt + sigma_t * noise
                 x = torch.sqrt(alpha_bar_t_prev) * pred_x0 + dir_xt + sigma_t * noise
             else:

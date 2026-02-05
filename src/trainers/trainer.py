@@ -132,6 +132,7 @@ class DDPMTrainer:
         self.diffusion = Diffusion(
             timesteps=diff_cfg["timesteps"],
             beta_schedule=diff_cfg["beta_schedule"],
+            cosine_smooth=diff_cfg["cosine_smooth"],
             device=device,
         )
         self.T = self.diffusion.timesteps

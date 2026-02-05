@@ -94,6 +94,7 @@ def test(model, test_loader, device, config, checkpoint_path):
     diffusion = Diffusion(
         timesteps=diff_cfg["timesteps"],
         beta_schedule=diff_cfg["beta_schedule"],
+        cosine_smooth=diff_cfg["cosine_smooth"],
         device=device,
     )
 
