@@ -1,19 +1,19 @@
 seed: 0
 experiment_name: "iscat_ddpm"
 data:
-  image_size: 256
-  z_chunk_size: 32
-  mask_channels: 3  # Number of mask channels (particle sizes+background)
+  image_size: 256 # Fixed parameter
+  z_chunk_size: 32 # min 1 max 201
+  mask_channels: 3  # Number of mask channels (particle sizes+background) number_particle+1 (+1 for background)
   fluo_masks_indices: [0, 1] # 0: 80nm, 1: 300nm, 2: 600nm
-  seg_method: "comdet"
-  one_hot_encode: True
-  data_type: "Brightfield"
+  seg_method: "comdet" # Legacy parameter
+  one_hot_encode: True # Fixed
+  data_type: "Brightfield" # Choose Brightfield, Laser NOT IMPLEMENTED
   normalize: "zscore" # "minmax" or "zscore" or "global_zscore"
   multi_class: true # If True the masks will have multiple classes (one per particle size+ class 0: background). If False, all particles are merged into one class.
-  dataset_folder_path: "/scratch/narjis/iscat_data/brightfield.hdf5"
-  indices: null
+  dataset_folder_path: "/data_ssd2/iscat_data/brightfield.hdf5" # dataset path "/scratch/narjis/iscat_data/brightfield.hdf5"
+  indices: null # list of indicies to use for eg [0,1,...50]. If we want a subdata. null= use all images
   train_dataset:
-    num_workers: 8
+    num_workers: 8 #number of w
     apply_augmentation: true
     normalize: ${data.normalize}
     classes: ${data.fluo_masks_indices}
@@ -27,14 +27,14 @@ data:
     multi_class: ${data.multi_class}
 
 training:
-  batch_size: 64
+  batch_size: 24
   num_epochs: 400
   train_split_size: 0.9
 
   optimizer:
-    type: "AdamW"
+    type: "AdamW" # this option not implemented
     parameters:
-      lr: 1e-3
+      lr: 1e-4
       weight_decay: 1e-6
       betas: [0.9, 0.999]
 

@@ -73,3 +73,8 @@ We can start with **pixel-space conditional DDPM** for ISCAT microscopy images w
   - [Latent diffusion model LDM](https://arxiv.org/abs/2112.10752)
   - [Denoising Diffusion Implicit Models DDIM](https://arxiv.org/abs/2010.02502) (More sample efficient than ddpm)
   - [batchnorm vs GroupNorm](https://apxml.com/courses/advanced-diffusion-architectures/chapter-2-advanced-unet-architectures/unet-normalization-techniques)
+  - [DPM Solver++](https://arxiv.org/abs/2211.01095) ( other inference sampling method)
+
+### Commands
+  - tmux new -t ddpm (start a tmux session if its not already running) if its already running use tmux attach 
+  -  CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 train.py 2>&1 | tee training.log
