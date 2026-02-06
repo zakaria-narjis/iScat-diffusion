@@ -16,7 +16,7 @@ def cosine_beta_schedule(timesteps, s=0.008):
     """
     steps = timesteps + 1
     x = torch.linspace(0, timesteps, steps)
-    alphas_cumprod = torch.cos(((x / timesteps) + s) / (1 + s) * math.pi * 0.5) ** 2
+    alphas_cumprod = torch.cos(((x / timesteps) + s) / (1 + s) * torch.pi * 0.5) ** 2
     alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
 
     betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
@@ -194,17 +194,44 @@ class Diffusion:
             x_0: generated clean image
         """
         # Select subset of timesteps uniformly
-        # We want to sample from T-1 down to 0
+        # We want to sample from T-1 down to 0. 
+
+        # Actually, there is a dillema about test time sampling with ddim or few steps sampling method. 
+        # The thing is that the scheduling we are using so far does not probably guarantee that the last step xT is pure noise (zero SNR).
+        # Which means that the model is not trained to handle pure noise at the first step (T-1) of the reverse process.
+        # And since in inference (test time) we will be starting from pure noise, this leads to a distribution shift between training and inference, which can cause poor sample quality.
+        # This paper https://arxiv.org/pdf/2305.08891 talk about this issue and propose to  Rescale Schedule to Zero Terminal SNR they also gave the algorithm to do that.
+
+        # In the same paper they argue sample steps selection  (discretization) also makes a difference. (Table2). 
+        # So far we tried method 1 and method 4. And method 1 seems to be better.
+
+        # Method 1: Uniform step selection (original DDIM , PNDM approach)
+        # --- start old way ---
         # step_size = self.timesteps // num_steps
-        # timesteps = list(range(0, self.timesteps, step_size))
-        # timesteps = list(reversed(timesteps))  # Start from highest timestep
-        timesteps = torch.linspace(
-            self.timesteps-1, 0, num_steps, dtype=torch.long
-        ).tolist()      
+        # noise_timesteps_list = list(range(0, self.timesteps, step_size))
+        # noise_timesteps_list = list(reversed(noise_timesteps_list))  # Start from highest timestep
+        # --- end old way ---
+
+        # more simple an clear
+        noise_timesteps_list = torch.arange(0, self.timesteps , self.timesteps // num_steps) 
+        noise_timesteps_list = torch.flip(noise_timesteps_list, dims=[0]).long().tolist()  # Start from highest timestep
+
+        # Method 2: iDDPM
+        # noise_timesteps_list = torch.round(torch.linspace(0, self.timesteps-1, num_steps)).long().tolist()
+        # noise_timesteps_list = torch.flip(torch.tensor(noise_timesteps_list), dims=[0]).tolist()
+        
+        # Method 3: DPM trailing
+        # noise_timesteps_list = torch.round(torch.arange(self.timesteps-1, 0, -self.timesteps / num_steps)).long().tolist()
+
+        # Method 4: chatgpt
+        # noise_timesteps_list = torch.linspace(
+        #     self.timesteps-1, 0, num_steps, dtype=torch.long
+        # ).tolist()
+
         # Start from pure noise
         x = torch.randn(shape, device=self.device)
         
-        for i, t in enumerate(timesteps):
+        for i, t in enumerate(noise_timesteps_list):
             t_batch = torch.full((shape[0],), t, device=self.device, dtype=torch.long)
             
             # Predict noise
@@ -216,8 +243,8 @@ class Diffusion:
             pred_x0 = (x - torch.sqrt(1 - alpha_bar_t) * pred_noise) / torch.sqrt(alpha_bar_t)
             
             # Check if this is the last step
-            if i < len(timesteps) - 1:
-                t_prev = timesteps[i + 1]
+            if i < len(noise_timesteps_list) - 1:
+                t_prev = noise_timesteps_list[i + 1]
                 alpha_bar_t_prev = self.alphas_cumprod[t_prev]
                 
                 # Compute variance

@@ -75,6 +75,18 @@ We can start with **pixel-space conditional DDPM** for ISCAT microscopy images w
   - [batchnorm vs GroupNorm](https://apxml.com/courses/advanced-diffusion-architectures/chapter-2-advanced-unet-architectures/unet-normalization-techniques)
   - [DPM Solver++](https://arxiv.org/abs/2211.01095) ( other inference sampling method)
 
-### Commands
+
+# Further ideas to try:
+  - Use different samplers : (DPM Solver ++, ...) something that could be better than DDIM
+  - use v-prediction rather than noise prediction (see what I wrote in diffusion.py line 199 in Diffusion.ddim_sample() function) 
+  - force zero final step SNR  (https://arxiv.org/pdf/2305.08891) (see what I wrote in diffusion.py line 199 in Diffusion.ddim_sample() function) 
+  - Use better weighting for the segmentation mask (condition)
+  - The style condition (basically contrast condition) seems to give us control on how we want the contrast of the image to look like maybe we can enhance it better than than using just the mean and std of the whole image (C,H,W) we can compute the stats for each channel. Maybe there is something better than the mean and std.
+  - Can we add more objectives to the training, so far we are using just MSE (noise, predicted_noise)? Can we emphasize more on the axial contrast variation of generated particles (since is the most important part for segmenation).
+  - classifier free diffusion guidance (https://arxiv.org/abs/2207.12598) can Help to force the model to adhere more to the segmentation mask. Since sometimes we see ghost particles (particles that doesnt exist in the condition/segmentation mask but somehow produced by the model).
+
+
+### Usefull Commands
   - tmux new -t ddpm (start a tmux session if its not already running) if its already running use tmux attach 
-  -  CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 train.py 2>&1 | tee training.log
+  - conda activate iscat
+  - CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 train.py 2>&1 | tee training.log
